@@ -19,10 +19,10 @@ setup(
     version="0.0.1",
     packages=find_packages(),
     install_requires=[
-        "cryptography==1.2.2",
-        "google-api-python-client==1.4.2",
+        "cryptography==1.3.1",
+        "google-api-python-client==1.5.0",
         "Jinja2==2.8",
-        "pykube==0.7.1",
+        "pykube==0.9.0",
         "PyYAML==3.11"
     ],
     zip_safe=False

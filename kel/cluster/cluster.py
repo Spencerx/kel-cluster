@@ -59,7 +59,7 @@ class Cluster:
         if cached_raw:
             cached = json.loads(cached_raw)
         if version not in cached:
-            url = "https://storage.googleapis.com/gondor-manifests/{}.yml"
+            url = "https://storage.googleapis.com/release.kelproject.com/distro/{}/manifest.json"
             r = requests.get(url.format(version))
             r.raise_for_status()
             cached[version] = yaml.load(r.content)

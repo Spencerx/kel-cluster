@@ -136,7 +136,7 @@ class ComponentResource(KubernetesResource):
             obj.create()
             logger.info('created "{}" service'.format(obj.name))
 
-    def create_replication_controller(self):
+    def create_deployment(self):
         rc = self.get_deployment()
         rc.create()
         logger.info('created "{}" deployment'.format(rc.name))

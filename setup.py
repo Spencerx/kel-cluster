@@ -22,7 +22,7 @@ setup(
         "cryptography==1.3.1",
         "google-api-python-client==1.5.0",
         "Jinja2==2.8",
-        "pykube==0.9.0",
+        "pykube==0.10.0",
         "PyYAML==3.11"
     ],
     zip_safe=False

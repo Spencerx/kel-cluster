@@ -8,8 +8,6 @@ import pykube
 import pykube.objects
 import yaml
 
-from pykube.rolling_updater import RollingUpdater
-
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +81,6 @@ class KubernetesResource:
         while obj.exists():
             time.sleep(1)
 
-    def delete_rc(self, obj):
-        obj.scale(0)
-        obj.delete()
-
     def get_manifest_ctx(self, layer, manifest, **ctx):
         image = self.cluster.config["layers"][layer].get("images", {}).get(manifest)
         if image:
@@ -118,10 +112,10 @@ class ComponentResource(KubernetesResource):
         return ctx
 
     def generate_deployment_key(self):
-        rc = self.get_api_objs(self.layer, self.manifest)["ReplicationController"][0]
+        deployment = self.get_api_objs(self.layer, self.manifest)["Deployment"][0]
         secrets = self.get_api_objs(self.layer, self.manifest)["Secret"]
-        objs = [rc]
-        for volume in rc.obj["spec"]["template"]["spec"].get("volumes", []):
+        objs = [deployment]
+        for volume in deployment.obj["spec"]["template"]["spec"].get("volumes", []):
             if "secret" in volume:
                 secret = next((s for s in secrets if s.name == volume["secret"]["secretName"]), None)
                 if secret is None:
@@ -129,13 +123,11 @@ class ComponentResource(KubernetesResource):
                 objs.append(secret)
         return super(ComponentResource, self).generate_deployment_key(objs)
 
-    def get_rc(self):
-        rc = self.get_api_objs(self.layer, self.manifest)["ReplicationController"][0]
+    def get_deployment(self):
+        rc = self.get_api_objs(self.layer, self.manifest)["Deployment"][0]
         key = self.generate_deployment_key()
         rc.obj["metadata"]["name"] = "{}-{}".format(rc.name, key)
         rc.obj["metadata"]["labels"]["deployment"] = key
-        rc.obj["spec"]["selector"]["deployment"] = key
-        rc.obj["spec"]["template"]["metadata"]["labels"]["deployment"] = key
         return rc
 
     def create_service(self):
@@ -145,9 +137,9 @@ class ComponentResource(KubernetesResource):
             logger.info('created "{}" service'.format(obj.name))
 
     def create_replication_controller(self):
-        rc = self.get_rc()
+        rc = self.get_deployment()
         rc.create()
-        logger.info('created "{}" replication controller'.format(rc.name))
+        logger.info('created "{}" deployment'.format(rc.name))
 
     def create_secrets(self):
         objs = self.get_api_objs(self.layer, self.manifest)["Secret"]
@@ -162,25 +154,25 @@ class ComponentResource(KubernetesResource):
         return bool(self.get_api_objs(self.layer, self.manifest)["Service"])
 
     @property
-    def running_rc(self):
-        if not hasattr(self, "_running_rc"):
-            rc = self.get_api_objs(self.layer, self.manifest)["ReplicationController"][0]
-            self._running_rc = (
-                pykube.ReplicationController
+    def current_deployment(self):
+        if not hasattr(self, "_current_deployment"):
+            deployment = self.get_api_objs(self.layer, self.manifest)["Deployment"][0]
+            self._current_deployment = (
+                pykube.Deployment
                 .objects(self.api)
                 .filter(
-                    namespace=rc.namespace,
+                    namespace=deployment.namespace,
                     selector={
-                        "kelproject.com/name": rc.obj["metadata"]["labels"]["kelproject.com/name"]
+                        "kelproject.com/name": deployment.obj["metadata"]["labels"]["kelproject.com/name"]
                     }
                 )
                 .get()
             )
-        return self._running_rc
+        return self._current_deployment
 
     def can_upgrade(self):
         key = self.generate_deployment_key()
-        return key != self.running_rc.obj["metadata"]["labels"]["deployment"]
+        return key != self.current_deployment.obj["metadata"]["labels"]["deployment"]
 
     def create(self):
         if self.disk:
@@ -193,13 +185,13 @@ class ComponentResource(KubernetesResource):
             self.create_secrets()
         if self.has_service():
             self.create_service()
-        self.create_replication_controller()
+        self.create_deployment()
 
     def upgrade(self):
         if not self.can_upgrade():
             return
         self.update_secrets()
-        RollingUpdater(self.api, self.running_rc, self.get_rc()).update()
+        self.get_deployment().save()
 
     def update_secrets(self):
         if self.has_secrets():
@@ -208,7 +200,7 @@ class ComponentResource(KubernetesResource):
                 secret.update()
 
     def destroy(self):
-        self.destroy_replication_controller()
+        self.destroy_deployment()
         if self.has_service():
             self.destroy_service()
         if self.has_secrets():
@@ -224,10 +216,10 @@ class ComponentResource(KubernetesResource):
             obj.delete()
             logger.info('destroyed "{}" service'.format(obj.name))
 
-    def destroy_replication_controller(self):
-        obj = self.get_api_objs(self.layer, self.manifest)["ReplicationController"][0]
-        self.delete_rc(obj)
-        logger.info('destroyed "{}" replication controller'.format(obj.name))
+    def destroy_deployment(self):
+        obj = self.get_api_objs(self.layer, self.manifest)["Deployment"][0]
+        self.delete_deployment(obj)
+        logger.info('destroyed "{}" deployment'.format(obj.name))
 
     def destroy_secrets(self):
         objs = self.get_api_objs(self.layer, self.manifest)["Secret"]

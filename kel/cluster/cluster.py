@@ -62,7 +62,7 @@ class Cluster:
             url = "https://storage.googleapis.com/release.kelproject.com/distro/{}/manifest.json"
             r = requests.get(url.format(version))
             r.raise_for_status()
-            cached[version] = yaml.load(r.content)
+            cached[version] = json.loads(r.content)
         with open(cache_file, "w") as fp:
             fp.write(json.dumps(cached))
         return cached[version]

@@ -40,6 +40,22 @@ class Cluster:
         }
         return mapping[name](self.provider, self, self.config["layer-0"]["resources"][name])
 
+    @property
+    def master_ip(self):
+        return self.config["layer-0"]["resources"].get("master-ip")
+
+    @master_ip.setter
+    def master_ip(self, value):
+        self.config["layer-0"]["resources"]["master-ip"] = value
+
+    @property
+    def router_ip(self):
+        return self.config["layer-1"]["resources"].get("router-ip")
+
+    @router_ip.setter
+    def router_ip(self, value):
+        self.config["layer-1"]["resources"]["router-ip"] = value
+
     def get_etcd_endpoints(self):
         return self.get_provider_resource("etcd").get_initial_endpoints()
 

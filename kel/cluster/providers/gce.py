@@ -604,15 +604,15 @@ class MasterGroup(GCEResource):
             "portRange": "443",
             "target": self.metadata["target_pool"]["selfLink"],
         }
-        if self.cluster.config.get("master-ip"):
-            body["IPAddress"] = self.cluster.config["master-ip"]
+        if self.cluster.master_ip:
+            body["IPAddress"] = self.cluster.master_ip
         op = self.compute.forwardingRules().insert(**self.region_kwargs(body=body)).execute()
         self.region_wait(op)
         logger.info('created forwarding rule "{}"'.format(self.forwarding_rule_name))
         forwarding_rule = self.compute.forwardingRules().get(**self.region_kwargs(forwardingRule=self.forwarding_rule_name)).execute()
         self.metadata["forwarding_rule"] = forwarding_rule
-        if not self.cluster.config.get("master-ip"):
-            self.cluster.config["master-ip"] = forwarding_rule["IPAddress"]
+        if not self.cluster.master_ip:
+            self.cluster.master_ip = forwarding_rule["IPAddress"]
 
     def create_loadbalancer(self):
         self.create_target_pool()

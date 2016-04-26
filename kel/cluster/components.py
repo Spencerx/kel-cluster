@@ -25,7 +25,7 @@ class KubernetesResource:
                 {
                     "name": self.cluster.config["name"],
                     "cluster": {
-                        "server": "https://{}".format(self.cluster.config["master-ip"]),
+                        "server": "https://{}".format(self.cluster.master_ip),
                         "certificate-authority-data": self.cluster.get_pem("ca"),
                     },
                 },
@@ -288,7 +288,7 @@ class Router(ComponentResource):
         self.cluster.provider.create_loadbalancer(
             self.loadbalancer_name,
             [80, 443],
-            ip=self.cluster.config.get("router-ip"),
+            ip=self.cluster.router_ip,
         )
 
     def create(self):

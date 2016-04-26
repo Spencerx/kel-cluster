@@ -187,12 +187,12 @@ class GCEResource:
         return "{}.c.{}.internal".format(name, self.project)
 
     def get_source_image(self):
-        if self.cluster.config["layers"]["os"]["type"] == "coreos":
+        if self.cluster.config["release"]["os"]["type"] == "coreos":
             resp = self.compute.images().list(project="coreos-cloud").execute()
             for image in resp["items"]:
                 name = "coreos-{}-{}".format(
-                    self.cluster.config["layers"]["os"]["channel"],
-                    self.cluster.config["layers"]["os"]["version"].replace(".", "-"),
+                    self.cluster.config["release"]["os"]["channel"],
+                    self.cluster.config["release"]["os"]["version"].replace(".", "-"),
                 )
                 if image["name"].startswith(name):
                     break
@@ -205,10 +205,10 @@ class GCEResource:
     @property
     def template_hash(self):
         return hashlib.sha1(b"".join([
-            self.cluster.config["layers"]["os"]["type"].encode("utf-8"),
-            self.cluster.config["layers"]["os"]["channel"].encode("utf-8"),
-            self.cluster.config["layers"]["os"]["version"].encode("utf-8"),
-            self.cluster.config["layers"]["kubernetes"]["version"].encode("utf-8"),
+            self.cluster.config["release"]["os"]["type"].encode("utf-8"),
+            self.cluster.config["release"]["os"]["channel"].encode("utf-8"),
+            self.cluster.config["release"]["os"]["version"].encode("utf-8"),
+            self.cluster.config["release"]["kubernetes"]["version"].encode("utf-8"),
         ])).hexdigest()[:8]
 
     def get_hashed_template_name(self, name):
@@ -662,7 +662,7 @@ class MasterGroup(GCEResource):
                         {
                             "key": "startup-script",
                             "value": self.cluster.decode_manifest(
-                                self.cluster.config["layers"]["os"]["manifests"]["master"],
+                                self.cluster.config["release"]["os"]["manifests"]["master"],
                                 ctx={"config": self.config},
                             ),
                         },
@@ -812,7 +812,7 @@ class NodeGroup(GCEResource):
                         {
                             "key": "startup-script",
                             "value": self.cluster.decode_manifest(
-                                self.cluster.config["layers"]["os"]["manifests"]["node"],
+                                self.cluster.config["release"]["os"]["manifests"]["node"],
                                 ctx={"config": self.config},
                             ),
                         },

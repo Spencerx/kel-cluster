@@ -1,18 +1,12 @@
 import base64
 import collections
 import importlib
-import json
 import logging
-import os
-
-import requests
-import yaml
 
 from cryptography import x509
 from jinja2 import Template
 
 from .keykeeper import KeyKeeper
-from .utils import dict_merge
 
 
 logger = logging.getLogger(__name__)
@@ -27,50 +21,15 @@ class Cluster:
         "nodes",
     ]
 
-    @classmethod
-    def from_config(cls, filename):
-        root = os.path.join(os.path.expanduser("~"), ".config", "kel", "clusters")
-        with open(os.path.join(root, filename)) as fp:
-            config = yaml.load(fp.read())
-        cluster = cls(config)
-        cluster.key_keeper = KeyKeeper(cluster.config.get("key-dir"))
-        return cluster
-
     def __init__(self, config):
-        self.config = {}
+        self.config = config
         self.resources = collections.OrderedDict()
         self.provider_module = importlib.import_module(
             "kel.cluster.providers.{}".format(
-                config["provider"]["kind"],
+                config["layer-0"]["provider"]["kind"],
             ),
         )
-        self.provider = self.provider_module.setup(**config["provider"])
-        self.set_version(config["kel-version"])
-        dict_merge(self.config, config)
-
-    def load_layers(self, version):
-        cache_file = os.path.expanduser("~/.cache/kel/versions.json")
-        if not os.path.exists(os.path.dirname(cache_file)):
-            os.makedirs(os.path.dirname(cache_file))
-        cached_raw, cached = None, {}
-        if os.path.exists(cache_file):
-            with open(cache_file) as fp:
-                cached_raw = fp.read().strip()
-        if cached_raw:
-            cached = json.loads(cached_raw)
-        if version not in cached:
-            url = "https://storage.googleapis.com/release.kelproject.com/distro/{}/manifest.json"
-            r = requests.get(url.format(version))
-            r.raise_for_status()
-            cached[version] = json.loads(r.content)
-        with open(cache_file, "w") as fp:
-            fp.write(json.dumps(cached))
-        return cached[version]
-
-    def set_version(self, version):
-        self.config.update(self.load_layers(version))
-        self.config["layers"]["kel"]["version"] = version
-        self.version = version
+        self.provider = self.provider_module.setup(**config["layer-0"]["provider"])
 
     def get_provider_resource(self, name):
         mapping = {
@@ -79,7 +38,7 @@ class Cluster:
             "master": self.provider_module.MasterGroup,
             "nodes": ClusterNodes(self.provider_module.NodeGroup),
         }
-        return mapping[name](self.provider, self, self.config["resources"][name])
+        return mapping[name](self.provider, self, self.config["layer-0"]["resources"][name])
 
     def get_etcd_endpoints(self):
         return self.get_provider_resource("etcd").get_initial_endpoints()

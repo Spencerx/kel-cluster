@@ -51,13 +51,13 @@ class KubernetesResource:
             "current-context": self.cluster.config["name"],
         })
 
-    def get_api_objs(self, layer, manifest, ctx=None):
+    def get_api_objs(self, group, manifest, ctx=None):
         if ctx is None:
             ctx = {}
-        ctx = self.get_manifest_ctx(layer, manifest, **ctx)
+        ctx = self.get_manifest_ctx(group, manifest, **ctx)
         docs = yaml.load_all(
             self.cluster.decode_manifest(
-                self.cluster.config["layers"][layer]["manifests"][manifest],
+                self.cluster.config["release"][group]["manifests"][manifest],
                 ctx,
             )
         )
@@ -81,8 +81,8 @@ class KubernetesResource:
         while obj.exists():
             time.sleep(1)
 
-    def get_manifest_ctx(self, layer, manifest, **ctx):
-        image = self.cluster.config["layers"][layer].get("images", {}).get(manifest)
+    def get_manifest_ctx(self, group, manifest, **ctx):
+        image = self.cluster.config["release"][group].get("images", {}).get(manifest)
         if image:
             ctx["image"] = image
         return ctx
@@ -96,24 +96,24 @@ class ComponentResource(KubernetesResource):
     @property
     def disk(self):
         if self.requires_disk:
-            disk_config = self.cluster.config["resources"].get("{}-disk".format(self.manifest))
+            disk_config = self.cluster.config[self.layer]["resources"].get("{}-disk".format(self.manifest))
             if disk_config is None:
                 raise Exception('"{}" requires disk configuration'.format(self.manifest))
             return disk_config
 
-    def get_manifest_ctx(self, layer, manifest, **ctx):
-        ctx = super(ComponentResource, self).get_manifest_ctx(layer, manifest, **ctx)
+    def get_manifest_ctx(self, group, manifest, **ctx):
+        ctx = super(ComponentResource, self).get_manifest_ctx(group, manifest, **ctx)
         ctx.update({
-            "version": self.cluster.config["layers"][layer]["version"].replace(".", "-"),
+            "version": self.cluster.config["release"][group]["version"].replace(".", "-"),
             "replicas": self.replicas,
         })
         if self.bundle:
-            ctx["bundle"] = self.cluster.config["layers"][layer]["bundles"][self.bundle]
+            ctx["bundle"] = self.cluster.config["release"][group]["bundles"][self.bundle]
         return ctx
 
     def generate_deployment_key(self):
-        deployment = self.get_api_objs(self.layer, self.manifest)["Deployment"][0]
-        secrets = self.get_api_objs(self.layer, self.manifest)["Secret"]
+        deployment = self.get_api_objs(self.group, self.manifest)["Deployment"][0]
+        secrets = self.get_api_objs(self.group, self.manifest)["Secret"]
         objs = [deployment]
         for volume in deployment.obj["spec"]["template"]["spec"].get("volumes", []):
             if "secret" in volume:
@@ -124,39 +124,41 @@ class ComponentResource(KubernetesResource):
         return super(ComponentResource, self).generate_deployment_key(objs)
 
     def get_deployment(self):
-        rc = self.get_api_objs(self.layer, self.manifest)["Deployment"][0]
+        deployment = self.get_api_objs(self.group, self.manifest)["Deployment"][0]
         key = self.generate_deployment_key()
-        rc.obj["metadata"]["name"] = "{}-{}".format(rc.name, key)
-        rc.obj["metadata"]["labels"]["deployment"] = key
-        return rc
+        deployment.obj["metadata"]["labels"]["deployment"] = key
+        return deployment
 
     def create_service(self):
-        objs = self.get_api_objs(self.layer, self.manifest)["Service"]
+        objs = self.get_api_objs(self.group, self.manifest)["Service"]
         for obj in objs:
-            obj.create()
-            logger.info('created "{}" service'.format(obj.name))
+            if not obj.exists():
+                obj.create()
+                logger.info('created "{}" service'.format(obj.name))
 
     def create_deployment(self):
-        rc = self.get_deployment()
-        rc.create()
-        logger.info('created "{}" deployment'.format(rc.name))
+        deployment = self.get_deployment()
+        if not deployment.exists():
+            deployment.create()
+            logger.info('created "{}" deployment'.format(deployment.name))
 
     def create_secrets(self):
-        objs = self.get_api_objs(self.layer, self.manifest)["Secret"]
+        objs = self.get_api_objs(self.group, self.manifest)["Secret"]
         for obj in objs:
-            obj.create()
-            logger.info('created "{}" secret'.format(obj.name))
+            if not obj.exists():
+                obj.create()
+                logger.info('created "{}" secret'.format(obj.name))
 
     def has_secrets(self):
-        return bool(self.get_api_objs(self.layer, self.manifest)["Secret"])
+        return bool(self.get_api_objs(self.group, self.manifest)["Secret"])
 
     def has_service(self):
-        return bool(self.get_api_objs(self.layer, self.manifest)["Service"])
+        return bool(self.get_api_objs(self.group, self.manifest)["Service"])
 
     @property
     def current_deployment(self):
         if not hasattr(self, "_current_deployment"):
-            deployment = self.get_api_objs(self.layer, self.manifest)["Deployment"][0]
+            deployment = self.get_api_objs(self.group, self.manifest)["Deployment"][0]
             self._current_deployment = (
                 pykube.Deployment
                 .objects(self.api)
@@ -191,11 +193,13 @@ class ComponentResource(KubernetesResource):
         if not self.can_upgrade():
             return
         self.update_secrets()
-        self.get_deployment().save()
+        deployment = self.current_deployment
+        deployment.obj = self.get_deployment().obj
+        deployment.update()
 
     def update_secrets(self):
         if self.has_secrets():
-            secrets = self.get_api_objs(self.layer, self.manifest)["Secret"]
+            secrets = self.get_api_objs(self.group, self.manifest)["Secret"]
             for secret in secrets:
                 secret.update()
 
@@ -211,18 +215,18 @@ class ComponentResource(KubernetesResource):
         #     self.cluster.provider.destroy_disk("{}-{}".format("{}-{}".format(self.cluster.config["name"], self.disk.get("name", self.manifest))))
 
     def destroy_service(self):
-        objs = self.get_api_objs(self.layer, self.manifest)["Service"]
+        objs = self.get_api_objs(self.group, self.manifest)["Service"]
         for obj in objs:
             obj.delete()
             logger.info('destroyed "{}" service'.format(obj.name))
 
     def destroy_deployment(self):
-        obj = self.get_api_objs(self.layer, self.manifest)["Deployment"][0]
+        obj = self.get_api_objs(self.group, self.manifest)["Deployment"][0]
         self.delete_deployment(obj)
         logger.info('destroyed "{}" deployment'.format(obj.name))
 
     def destroy_secrets(self):
-        objs = self.get_api_objs(self.layer, self.manifest)["Secret"]
+        objs = self.get_api_objs(self.group, self.manifest)["Secret"]
         for obj in objs:
             obj.delete()
             logger.info('destroyed "{}" secret'.format(obj.name))
@@ -230,17 +234,21 @@ class ComponentResource(KubernetesResource):
 
 class KubeDNS(ComponentResource):
 
-    layer = "kubernetes"
+    layer = "layer-0"
+    group = "kubernetes"
     manifest = "kube-dns"
     replicas = 1
 
 
 class KelSystem(KubernetesResource):
 
+    layer = "layer-1"
+
     def create(self):
         obj = self.get_api_objs("kel", "kel-system")["Namespace"][0]
-        obj.create()
-        logger.info('created "{}" namespace'.format(obj.name))
+        if not obj.exists():
+            obj.create()
+            logger.info('created "{}" namespace'.format(obj.name))
 
     def destroy(self):
         obj = self.get_api_objs("kel", "kel-system")["Namespace"][0]
@@ -250,10 +258,13 @@ class KelSystem(KubernetesResource):
 
 class KelBuilds(KubernetesResource):
 
+    layer = "layer-1"
+
     def create(self):
         obj = self.get_api_objs("kel", "kel-builds")["Namespace"][0]
-        obj.create()
-        logger.info('created "{}" namespace'.format(obj.name))
+        if not obj.exists():
+            obj.create()
+            logger.info('created "{}" namespace'.format(obj.name))
 
     def destroy(self):
         obj = self.get_api_objs("kel", "kel-builds")["Namespace"][0]
@@ -263,7 +274,8 @@ class KelBuilds(KubernetesResource):
 
 class Router(ComponentResource):
 
-    layer = "kel"
+    layer = "layer-1"
+    group = "kel"
     manifest = "router"
     bundle = "router"
     replicas = 3
@@ -293,7 +305,8 @@ class Router(ComponentResource):
 
 class BlobstoreData(ComponentResource):
 
-    layer = "kel"
+    layer = "layer-1"
+    group = "kel"
     manifest = "blobstore-data"
     replicas = 1
     requires_disk = True
@@ -301,7 +314,8 @@ class BlobstoreData(ComponentResource):
 
 class Blobstore(ComponentResource):
 
-    layer = "kel"
+    layer = "layer-1"
+    group = "kel"
     manifest = "blobstore"
     bundle = "blobstore"
     replicas = 3
@@ -309,7 +323,8 @@ class Blobstore(ComponentResource):
 
 class ApiCache(ComponentResource):
 
-    layer = "kel"
+    layer = "layer-1"
+    group = "kel"
     manifest = "api-cache"
     replicas = 1
     requires_disk = True
@@ -317,7 +332,8 @@ class ApiCache(ComponentResource):
 
 class ApiDatabase(ComponentResource):
 
-    layer = "kel"
+    layer = "layer-1"
+    group = "kel"
     manifest = "api-database"
     replicas = 1
     requires_disk = True
@@ -325,7 +341,8 @@ class ApiDatabase(ComponentResource):
 
 class ApiWeb(ComponentResource):
 
-    layer = "kel"
+    layer = "layer-1"
+    group = "kel"
     manifest = "api-web"
     bundle = "api"
     replicas = 3
@@ -333,7 +350,8 @@ class ApiWeb(ComponentResource):
 
 class ApiWorker(ComponentResource):
 
-    layer = "kel"
+    layer = "layer-1"
+    group = "kel"
     manifest = "api-worker"
     bundle = "api"
     replicas = 4
@@ -341,10 +359,14 @@ class ApiWorker(ComponentResource):
 
 class LogAgent(KubernetesResource):
 
+    layer = "layer-1"
+    group = "kel"
+
     def create(self):
         obj = self.get_api_objs("kel", "log-agent")["DaemonSet"][0]
-        obj.create()
-        logger.info('created "{}" daemonset'.format(obj.name))
+        if not obj.exists():
+            obj.create()
+            logger.info('created "{}" daemonset'.format(obj.name))
 
     def destroy(self):
         obj = self.get_api_objs("kel", "log-agent")["DaemonSet"][0]
@@ -354,13 +376,15 @@ class LogAgent(KubernetesResource):
 
 class Logstash(ComponentResource):
 
-    layer = "kel"
+    layer = "layer-1"
+    group = "kel"
     manifest = "logstash"
     replicas = 1
 
 
 class LogStore(ComponentResource):
 
-    layer = "kel"
+    layer = "layer-1"
+    group = "kel"
     manifest = "log-store"
     replicas = 3

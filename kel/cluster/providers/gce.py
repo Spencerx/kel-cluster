@@ -320,7 +320,7 @@ class Network(GCEResource):
                     },
                 ],
                 "sourceRanges": [
-                    self.cluster.config["pod-network"],
+                    self.cluster.config["layer-0"]["pod-network"],
                 ]
             },
         )
@@ -519,7 +519,7 @@ class EtcdCluster(GCEResource):
                     {
                         "key": "startup-script",
                         "value": self.cluster.decode_manifest(
-                            self.cluster.config["layers"]["os"]["manifests"]["etcd"],
+                            self.cluster.config["release"]["os"]["manifests"]["etcd"],
                             {
                                 "etcd": self,
                                 "i": i,

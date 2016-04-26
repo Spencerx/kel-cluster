@@ -23,7 +23,7 @@ setup(
         "google-api-python-client==1.5.0",
         "Jinja2==2.8",
         "pykube==0.10.0",
-        "PyYAML==3.11"
+        "PyYAML"
     ],
     zip_safe=False
 )

@@ -392,6 +392,8 @@ class Network(GCEResource):
         logger.info('destroyed firewall "{}" on network "{}"'.format(name, self.config["name"]))
 
     def destroy_routes(self):
+        if not self.metadata.get("network"):
+            self.metadata["network"] = self.compute.networks().get(**self.global_kwargs(network=self.config["name"])).execute()
         resp = self.compute.routes().list(**self.global_kwargs()).execute()
         for route in resp["items"]:
             if route["network"] == self.metadata["network"]["selfLink"] and not route["name"].startswith("default-"):

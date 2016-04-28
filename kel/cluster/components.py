@@ -304,24 +304,6 @@ class Router(ComponentResource):
         self.cluster.provider.destroy_loadbalancer(self.loadbalancer_name)
 
 
-class BlobstoreData(ComponentResource):
-
-    layer = "layer-1"
-    group = "kel"
-    manifest = "blobstore-data"
-    replicas = 1
-    requires_disk = True
-
-
-class Blobstore(ComponentResource):
-
-    layer = "layer-1"
-    group = "kel"
-    manifest = "blobstore"
-    bundle = "blobstore"
-    replicas = 3
-
-
 class ApiCache(ComponentResource):
 
     layer = "layer-1"
@@ -346,46 +328,4 @@ class ApiWeb(ComponentResource):
     group = "kel"
     manifest = "api-web"
     bundle = "api"
-    replicas = 3
-
-
-class ApiWorker(ComponentResource):
-
-    layer = "layer-1"
-    group = "kel"
-    manifest = "api-worker"
-    bundle = "api"
-    replicas = 4
-
-
-class LogAgent(KubernetesResource):
-
-    layer = "layer-1"
-    group = "kel"
-
-    def create(self):
-        obj = self.get_api_objs("kel", "log-agent")["DaemonSet"][0]
-        if not obj.exists():
-            obj.create()
-            logger.info('created "{}" daemonset'.format(obj.name))
-
-    def destroy(self):
-        obj = self.get_api_objs("kel", "log-agent")["DaemonSet"][0]
-        self.delete_namespace(obj)
-        logger.info('destroyed "{}" daemonset'.format(obj.name))
-
-
-class Logstash(ComponentResource):
-
-    layer = "layer-1"
-    group = "kel"
-    manifest = "logstash"
-    replicas = 1
-
-
-class LogStore(ComponentResource):
-
-    layer = "layer-1"
-    group = "kel"
-    manifest = "log-store"
     replicas = 3

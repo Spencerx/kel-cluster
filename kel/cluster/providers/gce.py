@@ -98,7 +98,7 @@ class GCE:
     def destroy_disk(self, name):
         pass
 
-    def _create_target_pool(self, name):
+    def _create_target_pool(self, name, attached_ig=None):
         try:
             self.compute.targetPools().get(**self.region_kwargs(targetPool=name)).execute()
         except googleapiclient.errors.HttpError as e:
@@ -109,9 +109,18 @@ class GCE:
                 op = self.compute.targetPools().insert(**self.region_kwargs(body=body)).execute()
                 self.region_wait(op)
                 logger.info('created target pool "{}"'.format(name))
-                return self.compute.targetPools().get(**self.region_kwargs(targetPool=name)).execute()
+                target_pool = self.compute.targetPools().get(**self.region_kwargs(targetPool=name)).execute()
         else:
             logger.info('target pool "{}" already exists'.format(name))
+            return
+        if attached_ig is not None:
+            body = {
+                "targetPools": [
+                    target_pool["selfLink"],
+                ],
+            }
+            self.compute.instanceGroupManagers().setTargetPools(**self.zone_kwargs(instanceGroupManager=attached_ig, body=body)).execute()
+        return target_pool
 
     def _create_forwarding_rule(self, name, target, ports, ip=None):
         try:
@@ -133,8 +142,8 @@ class GCE:
         else:
             logger.info('forwarding rule "{}" already exists'.format(name))
 
-    def create_loadbalancer(self, name, ports, ip=None):
-        tp = self._create_target_pool("{}-pool".format(name))
+    def create_loadbalancer(self, name, ports, ip=None, attached_ig=None):
+        tp = self._create_target_pool("{}-pool".format(name), attached_ig=attached_ig)
         self._create_forwarding_rule("{}-rule".format(name), tp, ports, ip=ip)
 
     def destroy_loadbalancer(self, name):

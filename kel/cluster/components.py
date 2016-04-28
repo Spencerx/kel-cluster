@@ -104,7 +104,7 @@ class ComponentResource(KubernetesResource):
     def get_manifest_ctx(self, group, manifest, **ctx):
         ctx = super(ComponentResource, self).get_manifest_ctx(group, manifest, **ctx)
         ctx.update({
-            "version": self.cluster.config["release"][group]["version"].replace(".", "-"),
+            "version": self.cluster.config["release"]["version"].replace(".", "-"),
             "replicas": self.replicas,
         })
         if self.bundle:
@@ -289,6 +289,7 @@ class Router(ComponentResource):
             self.loadbalancer_name,
             [80, 443],
             ip=self.cluster.router_ip,
+            attached_ig="{}-node-1x-nodes".format(self.cluster.config["name"])  # @@@ fix hardcoded value
         )
 
     def create(self):

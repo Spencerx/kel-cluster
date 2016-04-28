@@ -1,5 +1,6 @@
 import base64
 import collections
+import concurrent.futures
 import importlib
 import logging
 
@@ -99,12 +100,14 @@ class Cluster:
         return base64.b64encode(data).decode("utf-8")
 
     def create(self):
-        for c in self.components:
-            self.get_provider_resource(c).create()
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for c in self.components:
+                self.get_provider_resource(c).create(executor)
 
     def destroy(self):
-        for c in reversed(self.components):
-            self.get_provider_resource(c).destroy()
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for c in reversed(self.components):
+                self.get_provider_resource(c).destroy(executor)
 
 
 class ClusterNodes:
@@ -118,10 +121,14 @@ class ClusterNodes:
             self.node_groups.append(self.NodeGroup(provider, cluster, node_config))
         return self
 
-    def create(self):
+    def create(self, executor):
+        fs = []
         for node_group in self.node_groups:
-            node_group.create()
+            fs.append(executor.submit(node_group.create, executor))
+        concurrent.futures.wait(fs)
 
-    def destroy(self):
+    def destroy(self, executor):
+        fs = []
         for node_group in self.node_groups:
-            node_group.destroy()
+            fs.append(executor.submit(node_group.destroy, executor))
+        concurrent.futures.wait(fs)

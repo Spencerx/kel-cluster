@@ -1,6 +1,8 @@
+import concurrent.futures
 import hashlib
 import logging
 import os
+import threading
 import time
 
 import googleapiclient.errors
@@ -19,11 +21,18 @@ def build_gce_compute():
 
 class GCE:
 
-    def __init__(self, project, region, zone, compute):
+    def __init__(self, project, region, zone):
         self.project = project
         self.region = region
         self.zone = zone
-        self.compute = compute
+        self._compute = {}
+
+    @property
+    def compute(self):
+        key = threading.get_ident()
+        if key not in self._compute:
+            self._compute[key] = build_gce_compute()
+        return self._compute[key]
 
     def global_kwargs(self, **kwargs):
         kwargs["project"] = self.project
@@ -148,7 +157,6 @@ def setup(**kwargs):
         project=kwargs["project-id"],
         region=kwargs["region"],
         zone=kwargs["zone"],
-        compute=build_gce_compute(),
     )
 
 
@@ -156,7 +164,6 @@ class GCEResource:
 
     def __init__(self, provider, cluster, config, **kwargs):
         self.provider = provider
-        self.compute = provider.compute
         self.cluster = cluster
         self.config = config.copy()
         self.project = provider.project
@@ -167,6 +174,10 @@ class GCEResource:
         self.metadata = {}
 
         self.cluster.resources.setdefault(self.get_name(), self)
+
+    @property
+    def compute(self):
+        return self.provider.compute
 
     def set_default_config(self):
         pass
@@ -227,10 +238,10 @@ class GCEResource:
     def zone_wait(self, op):
         self.provider.zone_wait(op)
 
-    def create(self):
+    def create(self, executor):
         raise NotImplementedError()
 
-    def destroy(self):
+    def destroy(self, executor):
         raise NotImplementedError()
 
 
@@ -261,124 +272,144 @@ class Network(GCEResource):
         logger.info('created firewall "{}" on network "{}"'.format(body["name"], self.config["name"]))
         return self.compute.firewalls().get(**self.global_kwargs(firewall=body["name"])).execute()
 
-    def create(self):
+    def create(self, executor):
         network = self.create_network()
         self.metadata["network"] = network
-        self.create_firewall(
-            "allow-icmp",
-            {
-                "allowed": [
-                    {
-                        "IPProtocol": "icmp",
-                    },
-                ],
-                "sourceRanges": [
-                    "0.0.0.0/0",
-                ]
-            },
+        fs = []
+        fs.append(
+            executor.submit(
+                self.create_firewall,
+                "allow-icmp",
+                {
+                    "allowed": [
+                        {
+                            "IPProtocol": "icmp",
+                        },
+                    ],
+                    "sourceRanges": [
+                        "0.0.0.0/0",
+                    ]
+                },
+            )
         )
-        self.create_firewall(
-            "allow-internal",
-            {
-                "allowed": [
-                    {
-                        "IPProtocol": "tcp",
-                        "ports": [
-                            "1-65535",
-                        ],
-                    },
-                    {
-                        "IPProtocol": "udp",
-                        "ports": [
-                            "1-65535",
-                        ],
-                    },
-                ],
-                "sourceRanges": [
-                    self.config["ipv4-range"],
-                ]
-            },
+        fs.append(
+            executor.submit(
+                self.create_firewall,
+                "allow-internal",
+                {
+                    "allowed": [
+                        {
+                            "IPProtocol": "tcp",
+                            "ports": [
+                                "1-65535",
+                            ],
+                        },
+                        {
+                            "IPProtocol": "udp",
+                            "ports": [
+                                "1-65535",
+                            ],
+                        },
+                    ],
+                    "sourceRanges": [
+                        self.config["ipv4-range"],
+                    ]
+                },
+            )
         )
-        self.create_firewall(
-            "allow-podnet",
-            {
-                "allowed": [
-                    {
-                        "IPProtocol": "tcp",
-                        "ports": [
-                            "1-65535",
-                        ],
-                    },
-                    {
-                        "IPProtocol": "udp",
-                        "ports": [
-                            "1-65535",
-                        ],
-                    },
-                    {
-                        "IPProtocol": "icmp",
-                    },
-                ],
-                "sourceRanges": [
-                    self.cluster.config["layer-0"]["pod-network"],
-                ]
-            },
+        fs.append(
+            executor.submit(
+                self.create_firewall,
+                "allow-podnet",
+                {
+                    "allowed": [
+                        {
+                            "IPProtocol": "tcp",
+                            "ports": [
+                                "1-65535",
+                            ],
+                        },
+                        {
+                            "IPProtocol": "udp",
+                            "ports": [
+                                "1-65535",
+                            ],
+                        },
+                        {
+                            "IPProtocol": "icmp",
+                        },
+                    ],
+                    "sourceRanges": [
+                        self.cluster.config["layer-0"]["pod-network"],
+                    ]
+                },
+            )
         )
-        self.create_firewall(
-            "allow-ssh",
-            {
-                "allowed": [
-                    {
-                        "IPProtocol": "tcp",
-                        "ports": [
-                            "22",
-                        ],
-                    },
-                ],
-                "sourceRanges": [
-                    "0.0.0.0/0",
-                ]
-            },
+        fs.append(
+            executor.submit(
+                self.create_firewall,
+                "allow-ssh",
+                {
+                    "allowed": [
+                        {
+                            "IPProtocol": "tcp",
+                            "ports": [
+                                "22",
+                            ],
+                        },
+                    ],
+                    "sourceRanges": [
+                        "0.0.0.0/0",
+                    ]
+                },
+            )
         )
-        self.create_firewall(
-            "allow-master-https",
-            {
-                "allowed": [
-                    {
-                        "IPProtocol": "tcp",
-                        "ports": [
-                            "443",
-                        ],
-                    },
-                ],
-                "sourceRanges": [
-                    "0.0.0.0/0",
-                ],
-                "targetTags": [
-                    "{}-master".format(self.config["name"]),
-                ],
-            },
+        fs.append(
+            executor.submit(
+                self.create_firewall,
+                "allow-master-https",
+                {
+                    "allowed": [
+                        {
+                            "IPProtocol": "tcp",
+                            "ports": [
+                                "443",
+                            ],
+                        },
+                    ],
+                    "sourceRanges": [
+                        "0.0.0.0/0",
+                    ],
+                    "targetTags": [
+                        "{}-master".format(self.config["name"]),
+                    ],
+                },
+            )
         )
-        self.create_firewall(
-            "allow-router",
-            {
-                "allowed": [
-                    {
-                        "IPProtocol": "tcp",
-                        "ports": [
-                            "80",
-                            "443",
-                        ],
-                    },
-                ],
-                "sourceRanges": [
-                    "0.0.0.0/0",
-                ],
-                "targetTags": [
-                    "{}-nodes".format(self.config["name"]),
-                ],
-            },
+        fs.append(
+            executor.submit(
+                self.create_firewall,
+                "allow-router",
+                {
+                    "allowed": [
+                        {
+                            "IPProtocol": "tcp",
+                            "ports": [
+                                "80",
+                                "443",
+                            ],
+                        },
+                    ],
+                    "sourceRanges": [
+                        "0.0.0.0/0",
+                    ],
+                    "targetTags": [
+                        "{}-nodes".format(self.config["name"]),
+                    ],
+                },
+            )
         )
+        concurrent.futures.wait(fs)
 
     def destroy_network(self):
         op = self.compute.networks().delete(**self.global_kwargs(network=self.config["name"])).execute()
@@ -391,24 +422,31 @@ class Network(GCEResource):
         self.global_wait(op)
         logger.info('destroyed firewall "{}" on network "{}"'.format(name, self.config["name"]))
 
-    def destroy_routes(self):
+    def destroy_route(self, route):
+        if route["network"] == self.metadata["network"]["selfLink"] and not route["name"].startswith("default-"):
+            op = self.compute.routes().delete(**self.global_kwargs(route=route["name"])).execute()
+            self.global_wait(op)
+            logger.info('destroyed route "{}" on network "{}"'.format(route["name"], self.config["name"]))
+
+    def destroy_routes(self, executor):
         if not self.metadata.get("network"):
             self.metadata["network"] = self.compute.networks().get(**self.global_kwargs(network=self.config["name"])).execute()
         resp = self.compute.routes().list(**self.global_kwargs()).execute()
+        fs = []
         for route in resp["items"]:
-            if route["network"] == self.metadata["network"]["selfLink"] and not route["name"].startswith("default-"):
-                op = self.compute.routes().delete(**self.global_kwargs(route=route["name"])).execute()
-                self.global_wait(op)
-                logger.info('destroyed route "{}" on network "{}"'.format(route["name"], self.config["name"]))
+            fs.append(executor.submit(self.destroy_route, route))
+        concurrent.futures.wait(fs)
 
-    def destroy(self):
-        self.destroy_routes()
-        self.destroy_firewall("allow-icmp")
-        self.destroy_firewall("allow-internal")
-        self.destroy_firewall("allow-podnet")
-        self.destroy_firewall("allow-ssh")
-        self.destroy_firewall("allow-master-https")
-        self.destroy_firewall("allow-router")
+    def destroy(self, executor):
+        self.destroy_routes(executor)
+        fs = []
+        fs.append(executor.submit(self.destroy_firewall, "allow-icmp"))
+        fs.append(executor.submit(self.destroy_firewall, "allow-internal"))
+        fs.append(executor.submit(self.destroy_firewall, "allow-podnet"))
+        fs.append(executor.submit(self.destroy_firewall, "allow-ssh"))
+        fs.append(executor.submit(self.destroy_firewall, "allow-master-https"))
+        fs.append(executor.submit(self.destroy_firewall, "allow-router"))
+        concurrent.futures.wait(fs)
         self.destroy_network()
 
 
@@ -549,15 +587,25 @@ class EtcdCluster(GCEResource):
         self.zone_wait(op)
         logger.info('destroyed machine "{}"'.format(name))
 
-    def create(self):
-        for i in self.node_iterator():
-            self.create_disk(i)
-            self.create_machine(i)
+    def create_node(self, i):
+        self.create_disk(i)
+        self.create_machine(i)
 
-    def destroy(self):
+    def create(self, executor):
+        fs = []
         for i in self.node_iterator():
-            self.destroy_machine(i)
-            self.destroy_disk(i)
+            fs.append(executor.submit(self.create_node, i))
+        concurrent.futures.wait(fs)
+
+    def destroy_node(self, i):
+        self.destroy_machine(i)
+        self.destroy_disk(i)
+
+    def destroy(self, executor):
+        fs = []
+        for i in self.node_iterator():
+            fs.append(executor.submit(self.destroy_node, i))
+        concurrent.futures.wait(fs)
 
 
 class MasterGroup(GCEResource):
@@ -713,12 +761,12 @@ class MasterGroup(GCEResource):
             time.sleep(1)
         logger.info('created instance group manager "{}"'.format(self.instance_group_name))
 
-    def create(self):
+    def create(self, executor):
         self.create_loadbalancer()
         self.create_instance_template()
         self.create_instance_group()
 
-    def destroy(self):
+    def destroy(self, executor):
         self.destroy_instance_group()
         self.destroy_instance_template()
         self.destroy_loadbalancer()
@@ -860,11 +908,11 @@ class NodeGroup(GCEResource):
             time.sleep(1)
         logger.info('created instance group manager "{}"'.format(self.instance_group_name))
 
-    def create(self):
+    def create(self, executor):
         self.create_instance_template()
         self.create_instance_group()
 
-    def destroy(self):
+    def destroy(self, executor):
         self.destroy_instance_group()
         self.destroy_instance_template()
 

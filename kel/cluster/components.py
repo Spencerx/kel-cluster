@@ -277,8 +277,7 @@ class Router(ComponentResource):
     layer = "layer-1"
     group = "kel"
     manifest = "router"
-    bundle = "router"
-    replicas = 3
+    replicas = 1
 
     @property
     def loadbalancer_name(self):
@@ -328,4 +327,4 @@ class ApiWeb(ComponentResource):
     group = "kel"
     manifest = "api-web"
     bundle = "api"
-    replicas = 3
+    replicas = 1

@@ -76,6 +76,15 @@ class GCE:
             else:
                 time.sleep(1)
 
+    def exists(self, method, **kwargs):
+        try:
+            getattr(self.compute, method)().get(**kwargs).execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status == 404:
+                return False
+            raise
+        return True
+
     def create_disk(self, name, size, kind):
         try:
             self.compute.disks().get(**self.zone_kwargs(disk=name)).execute()
@@ -260,26 +269,37 @@ class Network(GCEResource):
 
     def set_default_config(self):
         self.config.setdefault("name", self.cluster.config["name"])
+        self.config.setdefault("global", True)
+        self.config.setdefault("ipv4-range", "10.128.0.0/9")
 
     def create_network(self):
-        body = {
-            "name": self.config["name"],
-            "IPv4Range": self.config["ipv4-range"],
-        }
-        op = self.compute.networks().insert(**self.global_kwargs(body=body)).execute()
-        self.global_wait(op)
-        logger.info('created network "{}"'.format(self.config["name"]))
-        return self.compute.networks().get(**self.global_kwargs(network=body["name"])).execute()
+        if self.provider.exists("networks", **self.global_kwargs(network=self.config["name"])):
+            logger.info('network "{}" already exists'.format(self.config["name"]))
+        else:
+            body = {
+                "name": self.config["name"],
+            }
+            if self.config["global"]:
+                body["autoCreateSubnetworks"] = True
+            else:
+                body["IPv4Range"] = self.config["ipv4-range"]
+            op = self.compute.networks().insert(**self.global_kwargs(body=body)).execute()
+            self.global_wait(op)
+            logger.info('created network "{}"'.format(self.config["name"]))
+        return self.compute.networks().get(**self.global_kwargs(network=self.config["name"])).execute()
 
     def create_firewall(self, name, body):
-        body.update({
-            "name": "{}-{}".format(self.metadata["network"]["name"], name),
-            "network": self.metadata["network"]["selfLink"],
-        })
-        op = self.compute.firewalls().insert(**self.global_kwargs(body=body)).execute()
-        self.global_wait(op)
-        logger.info('created firewall "{}" on network "{}"'.format(body["name"], self.config["name"]))
-        return self.compute.firewalls().get(**self.global_kwargs(firewall=body["name"])).execute()
+        if self.provider.exists("firewalls", **self.global_kwargs(firewall=name)):
+            logger.info('firewall "{}" on network "{}" already exists'.format(self.config["name"], self.config["name"]))
+        else:
+            body.update({
+                "name": name,
+                "network": self.metadata["network"]["selfLink"],
+            })
+            op = self.compute.firewalls().insert(**self.global_kwargs(body=body)).execute()
+            self.global_wait(op)
+            logger.info('created firewall "{}" on network "{}"'.format(body["name"], self.config["name"]))
+        return self.compute.firewalls().get(**self.global_kwargs(firewall=name)).execute()
 
     def create(self, executor):
         network = self.create_network()
@@ -288,7 +308,7 @@ class Network(GCEResource):
         fs.append(
             executor.submit(
                 self.create_firewall,
-                "allow-icmp",
+                "{}-allow-icmp".format(self.config["name"]),
                 {
                     "allowed": [
                         {
@@ -304,7 +324,7 @@ class Network(GCEResource):
         fs.append(
             executor.submit(
                 self.create_firewall,
-                "allow-internal",
+                "{}-allow-internal".format(self.config["name"]),
                 {
                     "allowed": [
                         {
@@ -329,7 +349,7 @@ class Network(GCEResource):
         fs.append(
             executor.submit(
                 self.create_firewall,
-                "allow-podnet",
+                "{}-allow-podnet".format(self.cluster.config["name"]),
                 {
                     "allowed": [
                         {
@@ -357,7 +377,7 @@ class Network(GCEResource):
         fs.append(
             executor.submit(
                 self.create_firewall,
-                "allow-ssh",
+                "{}-allow-ssh".format(self.config["name"]),
                 {
                     "allowed": [
                         {
@@ -376,7 +396,7 @@ class Network(GCEResource):
         fs.append(
             executor.submit(
                 self.create_firewall,
-                "allow-master-https",
+                "{}-allow-master-https".format(self.cluster.config["name"]),
                 {
                     "allowed": [
                         {
@@ -390,7 +410,7 @@ class Network(GCEResource):
                         "0.0.0.0/0",
                     ],
                     "targetTags": [
-                        "{}-master".format(self.config["name"]),
+                        "{}-master".format(self.cluster.config["name"]),
                     ],
                 },
             )
@@ -398,7 +418,7 @@ class Network(GCEResource):
         fs.append(
             executor.submit(
                 self.create_firewall,
-                "allow-router",
+                "{}-allow-router".format(self.cluster.config["name"]),
                 {
                     "allowed": [
                         {
@@ -413,7 +433,7 @@ class Network(GCEResource):
                         "0.0.0.0/0",
                     ],
                     "targetTags": [
-                        "{}-nodes".format(self.config["name"]),
+                        "{}-nodes".format(self.cluster.config["name"]),
                     ],
                 },
             )
@@ -426,7 +446,6 @@ class Network(GCEResource):
         logger.info('destroyed network "{}"'.format(self.config["name"]))
 
     def destroy_firewall(self, name):
-        name = "{}-{}".format(self.config["name"], name)
         op = self.compute.firewalls().delete(**self.global_kwargs(firewall=name)).execute()
         self.global_wait(op)
         logger.info('destroyed firewall "{}" on network "{}"'.format(name, self.config["name"]))
@@ -449,12 +468,12 @@ class Network(GCEResource):
     def destroy(self, executor):
         self.destroy_routes(executor)
         fs = []
-        fs.append(executor.submit(self.destroy_firewall, "allow-icmp"))
-        fs.append(executor.submit(self.destroy_firewall, "allow-internal"))
-        fs.append(executor.submit(self.destroy_firewall, "allow-podnet"))
-        fs.append(executor.submit(self.destroy_firewall, "allow-ssh"))
-        fs.append(executor.submit(self.destroy_firewall, "allow-master-https"))
-        fs.append(executor.submit(self.destroy_firewall, "allow-router"))
+        fs.append(executor.submit(self.destroy_firewall, "{}-allow-icmp".format(self.config["name"])))
+        fs.append(executor.submit(self.destroy_firewall, "{}-allow-internal".format(self.config["name"])))
+        fs.append(executor.submit(self.destroy_firewall, "{}-allow-podnet".format(self.cluster.config["name"])))
+        fs.append(executor.submit(self.destroy_firewall, "{}-allow-ssh".format(self.config["name"])))
+        fs.append(executor.submit(self.destroy_firewall, "{}-allow-master-https".format(self.cluster.config["name"])))
+        fs.append(executor.submit(self.destroy_firewall, "{}-allow-router".format(self.cluster.config["name"])))
         concurrent.futures.wait(fs)
         self.destroy_network()
 

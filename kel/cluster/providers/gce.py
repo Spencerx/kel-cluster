@@ -466,16 +466,17 @@ class Network(GCEResource):
         concurrent.futures.wait(fs)
 
     def destroy(self, executor):
-        self.destroy_routes(executor)
-        fs = []
-        fs.append(executor.submit(self.destroy_firewall, "{}-allow-icmp".format(self.config["name"])))
-        fs.append(executor.submit(self.destroy_firewall, "{}-allow-internal".format(self.config["name"])))
-        fs.append(executor.submit(self.destroy_firewall, "{}-allow-podnet".format(self.cluster.config["name"])))
-        fs.append(executor.submit(self.destroy_firewall, "{}-allow-ssh".format(self.config["name"])))
-        fs.append(executor.submit(self.destroy_firewall, "{}-allow-master-https".format(self.cluster.config["name"])))
-        fs.append(executor.submit(self.destroy_firewall, "{}-allow-router".format(self.cluster.config["name"])))
-        concurrent.futures.wait(fs)
-        self.destroy_network()
+        if not self.config["global"]:
+            self.destroy_routes(executor)
+            fs = []
+            fs.append(executor.submit(self.destroy_firewall, "{}-allow-icmp".format(self.config["name"])))
+            fs.append(executor.submit(self.destroy_firewall, "{}-allow-internal".format(self.config["name"])))
+            fs.append(executor.submit(self.destroy_firewall, "{}-allow-podnet".format(self.cluster.config["name"])))
+            fs.append(executor.submit(self.destroy_firewall, "{}-allow-ssh".format(self.config["name"])))
+            fs.append(executor.submit(self.destroy_firewall, "{}-allow-master-https".format(self.cluster.config["name"])))
+            fs.append(executor.submit(self.destroy_firewall, "{}-allow-router".format(self.cluster.config["name"])))
+            concurrent.futures.wait(fs)
+            self.destroy_network()
 
 
 class EtcdCluster(GCEResource):

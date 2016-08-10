@@ -16,13 +16,13 @@ setup(
     author="Eldarion, Inc.",
     author_email="development@eldarion.com",
     long_description=read("README.rst"),
-    version="0.0.2",
+    version="0.0.3",
     packages=find_packages(),
     install_requires=[
-        "cryptography==1.3.1",
-        "google-api-python-client==1.5.0",
-        "Jinja2==2.8",
-        "pykube==0.10.0",
+        "cryptography",
+        "google-api-python-client",
+        "Jinja2",
+        "pykube",
         "PyYAML"
     ],
     zip_safe=False

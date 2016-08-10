@@ -16,7 +16,7 @@ setup(
     author="Eldarion, Inc.",
     author_email="development@eldarion.com",
     long_description=read("README.rst"),
-    version="0.0.1",
+    version="0.0.2",
     packages=find_packages(),
     install_requires=[
         "cryptography==1.3.1",

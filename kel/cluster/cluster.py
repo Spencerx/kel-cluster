@@ -39,6 +39,14 @@ class Cluster:
         return mapping[name](self.provider, self, self.config["layer-0"]["resources"][name])
 
     @property
+    def node_token(self):
+        return self.config["layer-0"].get("node-token")
+
+    @node_token.setter
+    def node_token(self, value):
+        self.config["layer-0"]["node-token"] = value
+
+    @property
     def master_ip(self):
         return self.config["layer-0"]["resources"].get("master-ip")
 

@@ -60,44 +60,14 @@ class Cluster:
     def get_etcd_endpoints(self):
         return self.get_provider_resource("etcd").get_initial_endpoints()
 
-    def get_default_cert_opts(self, name):
-        opts = {"sans": []}
-        if name == "apiserver":
-            opts["sans"].append(
-                x509.DNSName("kubernetes"),
-                x509.DNSName("kubernetes.default"),
-            )
-        return opts
-
     def decode_manifest(self, data, ctx=None):
         if ctx is None:
             ctx = {}
         ctx.update({
             "cluster": self,
-            "pem": self.get_pem,
             "b64": lambda s: base64.b64encode(s.encode("utf-8")).decode("ascii"),
         })
         return Template(base64.b64decode(data).decode("utf-8")).render(ctx)
-
-    def get_pem(self, name, raw=False):
-        if name == "ca-key":
-            data = KeyKeeper.encode_key_to_pem(
-                self.key_keeper.get_certificate_authority_key(),
-            )
-        elif name == "ca":
-            data = KeyKeeper.encode_certificate_to_pem(
-                self.key_keeper.get_certificate_authority_certificate(),
-            )
-        elif name.endswith("-key"):
-            data = KeyKeeper.encode_key_to_pem(self.key_keeper.get_key(name[:-4]))
-        else:
-            if raw:
-                data = self.key_keeper.get_raw_certificate(name)
-            else:
-                data = KeyKeeper.encode_certificate_to_pem(
-                    self.key_keeper.get_certificate(name, self.get_default_cert_opts(name)),
-                )
-        return base64.b64encode(data).decode("utf-8")
 
     def create(self):
         with concurrent.futures.ThreadPoolExecutor() as executor:

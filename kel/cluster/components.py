@@ -26,17 +26,13 @@ class KubernetesResource:
                     "name": self.cluster.config["name"],
                     "cluster": {
                         "server": "https://{}".format(self.cluster.master_ip),
-                        "certificate-authority-data": self.cluster.get_pem("ca"),
                     },
                 },
             ],
             "users": [
                 {
                     "name": self.cluster.config["name"],
-                    "user": {
-                        "client-key-data": self.cluster.get_pem("admin-key"),
-                        "client-certificate-data": self.cluster.get_pem("admin"),
-                    },
+                    "user": {},  # @@@ kubeadm
                 },
             ],
             "contexts": [

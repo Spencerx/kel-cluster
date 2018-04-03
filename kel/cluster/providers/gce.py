@@ -535,6 +535,13 @@ class EtcdCluster(GCEResource):
         self.zone_wait(op)
         logger.info('destroyed disk "{}"'.format(name))
 
+    def get_startup_script(self, i):
+        ctx = {
+            "etcd": self,
+            "i": i,
+        }
+        return self.cluster.decode_manifest(self.cluster.config["release"]["os"]["manifests"]["etcd"], ctx)
+
     def create_machine(self, i):
         body = {
             "name": self.get_node_name(i),
@@ -587,13 +594,7 @@ class EtcdCluster(GCEResource):
                 "items": [
                     {
                         "key": "startup-script",
-                        "value": self.cluster.decode_manifest(
-                            self.cluster.config["release"]["os"]["manifests"]["etcd"],
-                            {
-                                "etcd": self,
-                                "i": i,
-                            },
-                        ),
+                        "value": self.get_startup_script(i=i),
                     },
                 ],
             },
@@ -697,6 +698,12 @@ class MasterGroup(GCEResource):
         self.create_target_pool()
         self.create_forwarding_rule()
 
+    def get_startup_script(self):
+        ctx = {
+            "config": self.config
+        }
+        return self.cluster.decode_manifest(self.cluster.config["release"]["os"]["manifests"]["master"], ctx)
+
     def create_instance_template(self):
         body = {
             "name": self.instance_template_name,
@@ -740,10 +747,7 @@ class MasterGroup(GCEResource):
                     "items": [
                         {
                             "key": "startup-script",
-                            "value": self.cluster.decode_manifest(
-                                self.cluster.config["release"]["os"]["manifests"]["master"],
-                                ctx={"config": self.config},
-                            ),
+                            "value": self.get_startup_script(),
                         },
                     ],
                 },
@@ -847,6 +851,12 @@ class NodeGroup(GCEResource):
     def instance_group_base_name(self):
         return self.config["group-base-name"]
 
+    def get_startup_script(self):
+        ctx = {
+            "config": self.config,
+        }
+        return self.cluster.decode_manifest(self.cluster.config["release"]["os"]["manifests"]["node"], ctx)
+
     def create_instance_template(self):
         body = {
             "name": self.instance_template_name,
@@ -890,10 +900,7 @@ class NodeGroup(GCEResource):
                     "items": [
                         {
                             "key": "startup-script",
-                            "value": self.cluster.decode_manifest(
-                                self.cluster.config["release"]["os"]["manifests"]["node"],
-                                ctx={"config": self.config},
-                            ),
+                            "value": self.get_startup_script(),
                         },
                     ],
                 },

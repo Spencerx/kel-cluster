@@ -19,7 +19,6 @@ setup(
     version="0.0.3",
     packages=find_packages(),
     install_requires=[
-        "cryptography",
         "google-api-python-client",
         "Jinja2",
         "pykube",

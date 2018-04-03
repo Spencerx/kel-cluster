@@ -4,7 +4,6 @@ import concurrent.futures
 import importlib
 import logging
 
-from cryptography import x509
 from jinja2 import Template
 
 from .keykeeper import KeyKeeper

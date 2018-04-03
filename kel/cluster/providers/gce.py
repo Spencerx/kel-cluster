@@ -213,7 +213,7 @@ class GCEResource:
         return self.provider.zone_kwargs(**kwargs)
 
     def get_fqdn(self, name):
-        return "{}.c.{}.internal".format(name, self.project)
+        return "{}.{}.c.{}.internal".format(name, self.zone, self.project)
 
     def get_source_image(self):
         if self.cluster.config["release"]["os"]["type"] == "coreos":

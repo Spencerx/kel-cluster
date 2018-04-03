@@ -6,8 +6,6 @@ import logging
 
 from jinja2 import Template
 
-from .keykeeper import KeyKeeper
-
 
 logger = logging.getLogger(__name__)
 
